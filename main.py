@@ -1,0 +1,129 @@
+import sys
+
+import yaml
+from Processes import client, server
+import multiprocessing
+import argparse
+from src.Utils.dataset_utils import *
+import os
+from utils import setup_logger
+
+module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+if module_path not in sys.path:
+    sys.path.append(module_path)
+    
+def main(): 
+    parser = argparse.ArgumentParser(description='Setting up the Federated Learning simulation.')
+    
+    # Dataset parameters
+    parser.add_argument('--num_classes', type=int, help='Number of output classes')
+    parser.add_argument('--n_features', type=int, help='Number of features in the dataset')
+    parser.add_argument('--n_redundant', type=int, help='Number of redundant features in the dataset')
+    parser.add_argument('--test_size', type=float, help='Proportion of the dataset to include in the test split')
+    parser.add_argument('--training_samples', type=int, help='Number of training samples before splitting')
+    # Note: n_samples is computed as round(training_samples / (1 - test_size)), not a direct argument
+    parser.add_argument('--random_state', type=int, help='Random state for reproducibility in dataset splitting')
+
+    # Federated learning parameters
+    parser.add_argument('--num_clients', type=int, help='Number of federated clients')
+    parser.add_argument('--trees_client', type=int, help='Number of trees used by each client')
+    parser.add_argument('--epochs', type=int, help='Number of federated training epochs')
+    parser.add_argument('--rounds', type=int, default=0, help='Number of rounds of the federated learning process')
+    # Note: samples is computed as round(training_samples / num_clients), not a direct argument
+
+    # Hyperparameters for the model (e.g., XGBoost)
+    parser.add_argument('--objective', type=str, help='Objective function for the model')
+    parser.add_argument('--n_estimators', type=int, help='Number of boosting rounds (trees)')
+    parser.add_argument('--max_depth', type=int, help='Maximum depth of a tree')
+    parser.add_argument('--learning_rate', type=float, help='Boosting learning rate (eta)')
+    parser.add_argument('--base_score', type=float, help='Initial prediction score (global bias)')
+    parser.add_argument('--model_random_state', type=int, help='Random state for the model')
+
+    args = parser.parse_args()
+
+    # set logging level
+    level_str = args.verbose if args.verbose else "debug"
+    logger = setup_logger("FedMingle", level_str=level_str)
+        
+    # load also config file
+    current_dir = os.path.dirname(__file__)
+    file_path = os.path.join(current_dir, 'config.yaml')
+    with open(file_path, "r") as stream:
+        try:
+            config = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
+    
+    # Set configuration parameters
+    # Dataset parameters (not useful if the dataset is imported)
+    config['num_classes'] = args.num_classes if args.num_classes is not None else config['num_classes']
+    config['n_features'] = args.n_features if args.n_features is not None else config['n_features']
+    config['n_redundant'] = args.n_redundant if args.n_redundant is not None else config['n_redundant']
+    config['test_size'] = args.test_size if args.test_size is not None else config['test_size']
+    config['training_samples'] = args.training_samples if args.training_samples is not None else config['training_samples']
+    config['random_state'] = args.random_state if args.random_state is not None else config['random_state']
+
+    # Federated learning parameters
+    config['num_clients'] = args.num_clients if args.num_clients is not None else config['num_clients']
+    config['trees_client'] = args.trees_client if args.trees_client is not None else config['trees_client']
+    config['epochs'] = args.epochs if args.epochs is not None else config['epochs']
+    config['num_rounds'] = args.rounds if args.rounds is not None else config['num_rounds']
+
+    # Hyperparameters
+    config['hyperparams']['objective'] = args.objective if args.objective is not None else config['hyperparams']['objective']
+    config['hyperparams']['n_estimators'] = args.n_estimators if args.n_estimators is not None else config['hyperparams']['n_estimators']
+    config['hyperparams']['max_depth'] = args.max_depth if args.max_depth is not None else config['hyperparams']['max_depth']
+    config['hyperparams']['learning_rate'] = args.learning_rate if args.learning_rate is not None else config['hyperparams']['learning_rate']
+    config['hyperparams']['base_score'] = args.base_score if args.base_score is not None else config['hyperparams']['base_score']
+    config['hyperparams']['random_state'] = args.model_random_state if args.model_random_state is not None else config['hyperparams']['random_state']
+
+    config['n_samples_tot'] = round(config['training_samples_tot'] / config['num_clients'])
+    config['training_samples_client'] = round(config['training_samples_tot'] / config['num_clients'])
+    
+    logger.info(f"Configuration: {config}")
+    
+    # Set multiprocessing start method to 'spawn'
+    multiprocessing.set_start_method('spawn', force=True)
+    
+    # Load the full dataset based on the configuration
+    x_train, x_valid, y_train, y_valid = load_full_dataset(config=config)
+    # Save & split dataset across clients
+    save_iid_data_to_clients(x_train, y_train, x_valid, y_valid, config)
+    
+    #####################
+    # TODO: DELETE THE FILES SERVER AND CLIENTS ARE USING DURING THE SIMULATION
+    
+    import shutil
+    folder_list = [ "src/Models/xgb_models", "src/Models/cnn_models"]
+    for folder in folder_list:
+        if os.path.exists(folder) and os.path.isdir(folder):
+            try:
+                shutil.rmtree(folder)
+                print(f"Deleted folder: {folder}")
+            except OSError as e:
+                print(f"Error while deleting folder {folder}: {e}")
+        else:
+            print(f"Folder {folder} does not exist.")
+    
+    #####################
+    
+    import time
+    start_time = time.time()
+    
+    multiprocessing.set_start_method('spawn', force=True)
+
+    server = multiprocessing.Process(target=server, args=(config))
+    server.start()
+
+    t = []
+    for ii in range(config['num_clients']):
+        t.append(multiprocessing.Process(target=client, args=(config, ii)))
+        t[ii].start()
+
+    for process in t:
+        process.join()
+
+    print('Optimization finished in {} s'.format(time.time()-start_time))
+
+if __name__ == '__main__':
+    main()
