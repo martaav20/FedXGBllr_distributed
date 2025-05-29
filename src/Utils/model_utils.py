@@ -29,7 +29,7 @@ def save_server_model(model, path):
     Save the server model to a specified path with a round number.
     """
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    model.save(path)
+    model.save(path, include_optimizer=True)
 
         
 
@@ -37,7 +37,7 @@ def get_client_model_path(client_id, round):
     """
     Get the path for a client's model based on client ID and round number.
     """
-    return f"cnn_models/clients/round_{round}/CNN_client_model_{client_id}.keras"
+    return f"cnn_models/clients/round_{round}/CNN_client_model_{client_id}.h5"
 
 
 def CNN(num_clients, trees_client, n_channels, objective, n_classes=None):

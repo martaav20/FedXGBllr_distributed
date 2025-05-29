@@ -1,11 +1,13 @@
 import pickle
 import os
 import numpy as np
+import shutil
+
 
 def load_full_dataset(config):
     num_classes = config["num_classes"]
     n_redundant = config["n_redundant"]
-    path = f"dataset/dataset_{num_classes}_redundant_{n_redundant}.pkl"
+    path = f"src/Dataset/dataset_{num_classes}_redundant_{n_redundant}.pkl"
 
     if not os.path.exists(path):
         raise FileNotFoundError(f"Dataset file not found: {path}")
@@ -16,13 +18,17 @@ def load_full_dataset(config):
 
 def save_iid_data_to_clients(x_train, y_train, x_valid, y_valid, cfg):
     num_clients = cfg["num_clients"]
-    samples = round(cfg["training_samples"]/num_clients)
+    samples = round(cfg["training_samples_tot"]/num_clients)
 
     print("Splitting and saving IID client datasets...")
 
+    # Delete directory if it exists
+    if os.path.exists('src/Data'):
+        shutil.rmtree('src/Data')
+
     # Split the training dataset and create folders in data/client_#i/train
     for i in range(num_clients):
-        dir = f'data/client_{i}/train/'
+        dir = f'src/Data/client_{i}/train/'
         os.makedirs(dir, exist_ok=True)
         start, end = i * samples, (i + 1) * samples
         x_part, y_part = x_train[start:end], y_train[start:end]
@@ -33,7 +39,7 @@ def save_iid_data_to_clients(x_train, y_train, x_valid, y_valid, cfg):
 
     # Split the validation dataset and create folders in data/client_#i/valid
     for i in range(num_clients):
-        dir = f'data/client_{i}/valid/'
+        dir = f'src/Data/client_{i}/valid/'
         os.makedirs(dir, exist_ok=True)
         x_part, y_part = x_valid, y_valid  # all clients have the same validation set
         np.save(f"{dir}/x_valid.npy", x_part)
@@ -43,26 +49,26 @@ def save_iid_data_to_clients(x_train, y_train, x_valid, y_valid, cfg):
 
 
 def load_data_for_all_clients(cfg): 
-    num_clients = cfg["NUM_CLIENTS"]
+    num_clients = cfg["num_clients"]
     x_train_clients, y_train_clients = [], []
     x_valid_clients, y_valid_clients = [], []
 
     for i in range(num_clients):
-        x_train_clients.append(np.load(f'data/client_{i}/train/x_train.npy'))
-        y_train_clients.append(np.load(f'data/client_{i}/train/y_train.npy'))
-        x_valid_clients.append(np.load(f'data/client_{i}/valid/x_valid.npy'))
-        y_valid_clients.append(np.load(f'data/client_{i}/valid/y_valid.npy'))
+        x_train_clients.append(np.load(f'src/Data/client_{i}/train/x_train.npy'))
+        y_train_clients.append(np.load(f'src/Data/client_{i}/train/y_train.npy'))
+        x_valid_clients.append(np.load(f'src/Data/client_{i}/valid/x_valid.npy'))
+        y_valid_clients.append(np.load(f'src/Data/client_{i}/valid/y_valid.npy'))
 
     datasets = tuple(zip(x_train_clients, y_train_clients))
     return datasets, (x_valid_clients[0], y_valid_clients[0])  # all same valid
 
 
 def load_data_for_client(client_id):
-    x_train = np.load(f'data/client_{client_id}/train/x_train.npy')
-    y_train = np.load(f'data/client_{client_id}/train/y_train.npy')
-    x_valid = np.load(f'data/client_{client_id}/valid/x_valid.npy')
-    y_valid = np.load(f'data/client_{client_id}/valid/y_valid.npy')
-    return (x_train, y_train), (x_valid, y_valid)
+    x_train_c = np.load(f'src/Data/client_{client_id}/train/x_train.npy')
+    y_train_c = np.load(f'src/Data/client_{client_id}/train/y_train.npy')
+    x_valid_c = np.load(f'src/Data/client_{client_id}/valid/x_valid.npy')
+    y_valid_c = np.load(f'src/Data/client_{client_id}/valid/y_valid.npy')
+    return x_train_c, y_train_c, x_valid_c, y_valid_c
 
 # import numpy as np
 # from sklearn.datasets import load_svmlight_file
